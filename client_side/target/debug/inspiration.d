@@ -1,0 +1,1 @@
+/home/yasser/Projects/inspiration/client_side/target/debug/inspiration: /home/yasser/Projects/inspiration/client_side/src/main.rs /home/yasser/Projects/inspiration/common/src/dbconnection.rs /home/yasser/Projects/inspiration/common/src/lib.rs /home/yasser/Projects/inspiration/common/src/threadpool.rs
