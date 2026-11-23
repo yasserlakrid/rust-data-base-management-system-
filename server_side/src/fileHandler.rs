@@ -20,48 +20,7 @@ pub struct Block{
     pub childs :  [i32 ; B +1 ]
 }
 impl FileT {
-    pub fn open(name : &str , mode : char ) -> Result<Self , io::Error > {
-        let mut f = if mode == 'N' {
-           OpenOptions::new().read(true).write(true).create(true).open(name)
-        }else{
-            OpenOptions::new().read(true).write(true).create(false).open(name)
-        };
-        let mut file = match f {
-            Ok(f) => f , 
-            Err(err) => return Err(err),
-        };
-        let mut header = if mode == 'N' {
-            let mut  h = Header{
-                 root : 0 , 
-                 nbRec : 0 , 
-                 lastBlock  : 0 
-            };
-            file.write_all(&h.root.to_le_bytes()).unwrap(); 
-            file.write_all(&h.nbRec.to_le_bytes()).unwrap(); 
-            h
-        }else{
-            
-            let mut  rootBin = [0u8 ; 4];
-            let mut nbRecBin = [0u8 ; 4];
-            let mut lastBlockBin = [0u8 ; 4];
-            file.read_exact(&mut rootBin).unwrap();
-            file.read_exact(&mut nbRecBin).unwrap();
-            file.read_exact(&mut lastBlockBin).unwrap();
-
-            let mut h = Header {
-                 root : i32::from_le_bytes(rootBin) , 
-                 nbRec : i32::from_le_bytes(nbRecBin),
-                 lastBlock : i32::from_le_bytes(lastBlockBin)
-
-            };
-            h
-        };
-        Ok(FileT{
-            fileptr : file , header 
-        })
-
-    }
-    fn read_block(&mut self , nb : usize )->Result<Block , io::Error> {
+     fn read_block(&mut self , nb : usize )->Result<Block , io::Error> {
         self.fileptr.seek(SeekFrom::Start(HeaderSize as u64))? ; // to move pass the header 
         let offset = i64::try_from(nb * BlockSize)
             .map_err(|_| std::io::Error::new(
@@ -84,7 +43,7 @@ impl FileT {
             *value = i32::from_le_bytes(buf); 
         }
         let mut childs = [0i32 ; B + 1 ]; 
-        for value in values.iter_mut() {
+        for value in childs.iter_mut() {
             let mut buf = [0u8 ; 4] ;
             self.fileptr.read_exact(&mut buf); 
             *value = i32::from_le_bytes(buf); 
@@ -110,10 +69,64 @@ impl FileT {
          for value in block.childs.iter() {
             self.fileptr.write_all(&value.to_le_bytes())? ; 
         }
-        self.header.lastBlock += 1 ; 
-
+       
         Ok(1)
+    
     }
+
+    pub fn open(name : &str , mode : char ) -> Result<Self , io::Error > {
+        let mut f = if mode == 'N' {
+           OpenOptions::new().read(true).write(true).create(true).open(name)
+        }else{
+            OpenOptions::new().read(true).write(true).create(false).open(name)
+        };
+        let mut file = match f {
+            Ok(f) => f , 
+            Err(err) => return Err(err),
+        };
+        let mut header = if mode == 'N' {
+            let mut  h = Header{
+                 root : 0 , 
+                 nbRec : 0 , 
+                 lastBlock  : 0 
+            };
+           
+            file.write_all(&h.root.to_le_bytes()).unwrap(); 
+            file.write_all(&h.nbRec.to_le_bytes()).unwrap(); 
+            h
+        }else{
+            
+            let mut  rootBin = [0u8 ; 4];
+            let mut nbRecBin = [0u8 ; 4];
+            let mut lastBlockBin = [0u8 ; 4];
+            file.read_exact(&mut rootBin).unwrap();
+            file.read_exact(&mut nbRecBin).unwrap();
+            file.read_exact(&mut lastBlockBin).unwrap();
+
+            let mut h = Header {
+                 root : i32::from_le_bytes(rootBin) , 
+                 nbRec : i32::from_le_bytes(nbRecBin),
+                 lastBlock : i32::from_le_bytes(lastBlockBin)
+
+            };
+            h
+        };
+
+        //initialize the first block 
+        let mut file = FileT{
+            fileptr : file , header 
+        };
+        let mut firstBlock = Block {
+                degree : 0 ,
+                values : [0i32 ; B],
+                childs : [0i32 ; B+1]
+            };
+        file.write_block(&firstBlock , 0); 
+
+        Ok(file)
+
+    }
+   
 }
 #[derive(Debug, PartialEq)]
 enum InsertError {
@@ -139,49 +152,64 @@ fn insert_in_array(values: &mut [i32], n: usize, key: i32) -> Result<usize, Inse
 }
 
 impl FileT {
-   pub fn insert(&mut self , key : i32 ) -> Result<i32 , io::Error> {
-        
-        let mut  root = self.read_block( self.header.root as usize ).unwrap(); 
-        if root.degree < B as i32 {
-            insert_in_array(&mut root.values , B , key); 
-            self.write_block(&root , self.header.root as usize  ); 
-        } else {
-            if key < root.values[0] {
-                
-                let mut leftSubTree = FileT {
-                    header : Header {
-                        root : root.childs[0] , 
-                        nbRec : self.header.nbRec , //these doesn't matter in this operation 
-                        lastBlock  : self.header.lastBlock // this too 
-                    } , 
-                    fileptr : self.fileptr.try_clone().unwrap()
-                };
-                leftSubTree.insert(key); 
-            }else if  key > root.values[B-1]  {
+    pub fn append_new_block(&mut self){
+       
+        let mut firstBlock = Block {
+                degree : 0 ,
+                values : [0i32 ; B],
+                childs : [0i32 ; B+1]
+            };
 
-                let mut rightSubTree = FileT {
-                    header : Header {
-                        root : root.childs[B] , 
-                        nbRec : self.header.nbRec , //these doesn't matter in this operation 
-                        lastBlock  : self.header.lastBlock // this too 
-                    } , 
-                    fileptr : self.fileptr.try_clone().unwrap()
+        self.write_block(&firstBlock , (self.header.lastBlock + 1) as usize  );
+        self.header.lastBlock += 1 ; 
+
+    }
+   pub fn insert(&mut self , key : i32 , root : i32 ) -> Result<i32 , io::Error> {
+
+        let mut  rootBlock = self.read_block( root as usize ).unwrap(); 
+      
+        if rootBlock.degree < B as i32 {
+           insert_in_array(&mut rootBlock.values , rootBlock.degree as usize , key).unwrap(); 
+           
+            rootBlock.degree += 1 ; 
+            self.write_block(&rootBlock , root as usize  ); 
+          
+
+        } else {
+            if key < rootBlock.values[0] {
+                if rootBlock.childs[0] == 0 {
+                    self.append_new_block(); 
+                    rootBlock.childs[0] = self.header.lastBlock ;
+                    self.write_block(&rootBlock , root as usize );
                    
+                    self.insert(key , rootBlock.childs[0] )
+                }else{
+                    self.insert(key , rootBlock.childs[0] )
                 };
-                rightSubTree.insert(key); 
+                
+
+            }else if  key > rootBlock.values[B-1]  {
+                 if rootBlock.childs[B] == 0 {
+                    self.append_new_block(); 
+                    rootBlock.childs[B] = self.header.lastBlock ;
+                    self.write_block(&rootBlock , root as usize );
+                    self.insert(key , rootBlock.childs[B] )
+                }else{
+                    self.insert(key , rootBlock.childs[B] )
+                };
+
             }else {
-                for i in 0..root.values.len() - 1 {
-                    if root.values[i] < key && root.values[i + 1 ] > key  {
-                        let mut middleSubTree = FileT {
-                            header : Header {
-                                root : root.childs[i] , 
-                                nbRec : self.header.nbRec , //these doesn't matter in this operation 
-                                lastBlock  : self.header.lastBlock // this too 
-                            } , 
-                    fileptr : self.fileptr.try_clone().unwrap()
-                          
+                for i in 0..rootBlock.values.len() - 1 {
+                    if rootBlock.values[i] < key && rootBlock.values[i + 1 ] > key  {
+                         if rootBlock.childs[i] == 0 {
+                            self.append_new_block(); 
+                            rootBlock.childs[i] = self.header.lastBlock ;
+                            self.write_block(&rootBlock , root as usize );
+                        
+                            self.insert(key , rootBlock.childs[i] )
+                        }else{
+                            self.insert(key , rootBlock.childs[i] )
                         };
-                        middleSubTree.insert(key); 
                     }
                 }
             }
@@ -189,5 +217,30 @@ impl FileT {
         }
         
         Ok(1)
+   }
+   pub fn read(&mut self , root : i32 ){
+    
+        let mut root = self.read_block(root as usize ).unwrap(); 
+        if root.degree != 0 {
+            if root.childs[0] != 0 {
+                self.read(root.childs[0]);
+            }
+            
+        println!("{:?}" , &root.values[..(root.degree )as usize ]); 
+         for i in 1..(root.degree - 1 ) {
+            if root.childs[i as usize ] != 0 {
+                  self.read(root.childs[i as usize ]) ;
+            }
+        }
+        if root.childs[(root.degree - 1 ) as usize ] != 0 {
+            self.read(root.childs[(root.degree - 1 )as usize ]); 
+        }
+
+
+
+        }
+        
+
+    
    }
 }
