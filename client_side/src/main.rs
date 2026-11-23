@@ -9,8 +9,9 @@ use common::dbconnection::DBconnection;
 //the server will create files and manages requests 
 
 fn main() ->std::io::Result<()> {
-    let dbconnection = DBconnection::new( "yasser" , "data.bin", "127.0.0.1:5124");
-    
-   
+    let dbconnection = DBconnection::new( "yasser" , "data.bin", "127.0.0.1:5122").unwrap();
+    dbconnection.send("I 3 10");
+    dbconnection.send("R");
+
     Ok(())
 }
