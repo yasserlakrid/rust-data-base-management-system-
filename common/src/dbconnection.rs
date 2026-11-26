@@ -35,25 +35,24 @@ fn buil_start_up(user : &str , db :&str) -> Vec<u8>{
 }   
 
 fn build_query(query : &str) -> Vec<u8> {
-    let length = 4 + query.len() + 1 ; 
+    
     let mut message = Vec::new(); 
-    message.push(b'Q'); 
-    message.extend_from_slice(&(length as i32).to_be_bytes()); 
+   
     message.extend_from_slice(query.as_bytes());
-    message.push(0);
+    
     message
 }
 impl DBconnection {
-    pub fn new(user : &str , db : &str, address  : &str)-> Option<Self> {
+    pub fn new(user : &str , db : &str, address  : &str , mode : char  )-> Option<Self> {
         //put here the address of the files management program 
         let connection = TcpStream::connect(address); 
         
 
         let mut connection = match connection {
             Ok(connection) => connection , 
-            Err(err) => return  None
+            Err(err) => {println!("cannot connect to db"); return  None;}
         }; 
-
+if mode == 'N' || mode == 'n' {
         let startupmessage = buil_start_up(user , db);
         println!("the start up message from the client is {}" , String::from_utf8_lossy(&startupmessage));
         connection.write_all(&startupmessage);
@@ -61,6 +60,7 @@ impl DBconnection {
         let mut buf = [0;1024]; 
         let n =  connection.read(&mut buf).unwrap(); 
     
+}
        
         let (req_sender , req_receiver) = mpsc::channel::<String>(); 
         let (response_send , response_rec) = mpsc::channel::<Vec<u8>>();
@@ -69,14 +69,25 @@ impl DBconnection {
         let response_rec = Arc::new(Mutex::new(response_rec)) ;
         let connectionArc = Arc::clone(&connection); 
         thread::spawn(move || loop{
+        
             let query = {
-                let query = req_receiver.recv().unwrap(); 
-                println!("sending the request {}" , query); 
-                build_query(&query)
-            };
-            let mut connection = connectionArc.lock().unwrap();
+                 let query = req_receiver.recv();
+                let query = match query {
+                    Ok(query) => query ,
+                    Err(err) => continue
 
-            connection.write_all(&query);
+                } ;
+
+                query 
+            };
+          
+            let mut connection = connectionArc.lock().unwrap();
+            println!("the request is {:?} , {:?} " , query.as_bytes() ,  query ); 
+            match  connection.write_all(&query.as_bytes()) {
+                Ok(some) => {println!("the response is {:?}" , some)},
+                Err(err) => {println!("the error is {}" , err)}  
+            };
+           
 
             let mut buf = [0;1024]; 
             let n =  connection.read(&mut buf).unwrap(); 
@@ -84,8 +95,14 @@ impl DBconnection {
             let response =&buf[..n];
            
             response_send.send((*response).to_vec()).expect("faild response sending "); 
+            
+           
+          
+        }
+            
+               
   
-       });
+       );
         let connection = Arc::clone(&connection); 
         let response_rec = Arc::clone(&response_rec);
         Some(DBconnection {sender : req_sender , receiver : response_rec, connection })

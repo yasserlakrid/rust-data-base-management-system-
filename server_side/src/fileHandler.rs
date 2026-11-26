@@ -2,7 +2,7 @@ use std::fs::{File , OpenOptions };
 use std::io::{self , Read , Write , Seek , SeekFrom };
 
 static B : usize = 5 ; 
-static HeaderSize : usize = 8 ; 
+static HeaderSize : usize = 12 ; 
 static BlockSize : usize = 8 * B + 8 ; 
 pub struct Header {
     pub root : i32 , 
@@ -21,6 +21,7 @@ pub struct Block{
 }
 impl FileT {
      fn read_block(&mut self , nb : usize )->Result<Block , io::Error> {
+        self.fileptr.seek(SeekFrom::Start(0)); 
         self.fileptr.seek(SeekFrom::Start(HeaderSize as u64))? ; // to move pass the header 
         let offset = i64::try_from(nb * BlockSize)
             .map_err(|_| std::io::Error::new(
@@ -30,12 +31,12 @@ impl FileT {
 
         self.fileptr.seek(SeekFrom::Current(offset))?;
        
-        let degree = { 
+        let mut degree = { 
             let mut buf = [0u8 ; 4] ;
             self.fileptr.read_exact(&mut buf); 
             i32::from_le_bytes(buf)
         };
-        
+       
         let mut values = [0i32 ; B]; 
         for value in values.iter_mut() {
             let mut buf = [0u8 ; 4] ;
@@ -80,7 +81,7 @@ impl FileT {
         }else{
             OpenOptions::new().read(true).write(true).create(false).open(name)
         };
-        let mut file = match f {
+        let mut newfile = match f {
             Ok(f) => f , 
             Err(err) => return Err(err),
         };
@@ -91,18 +92,23 @@ impl FileT {
                  lastBlock  : 0 
             };
            
-            file.write_all(&h.root.to_le_bytes()).unwrap(); 
-            file.write_all(&h.nbRec.to_le_bytes()).unwrap(); 
+            newfile.write_all(&h.root.to_le_bytes()).unwrap(); 
+            newfile.write_all(&h.nbRec.to_le_bytes()).unwrap(); 
+            newfile.write_all(&h.lastBlock.to_le_bytes()).unwrap(); 
+
+            
+
             h
         }else{
             
             let mut  rootBin = [0u8 ; 4];
             let mut nbRecBin = [0u8 ; 4];
             let mut lastBlockBin = [0u8 ; 4];
-            file.read_exact(&mut rootBin).unwrap();
-            file.read_exact(&mut nbRecBin).unwrap();
-            file.read_exact(&mut lastBlockBin).unwrap();
+            newfile.read_exact(&mut rootBin).unwrap();
+            newfile.read_exact(&mut nbRecBin).unwrap();
+            newfile.read_exact(&mut lastBlockBin).unwrap();
 
+            println!("the file openned has {} blocks " ,  i32::from_le_bytes(lastBlockBin)); 
             let mut h = Header {
                  root : i32::from_le_bytes(rootBin) , 
                  nbRec : i32::from_le_bytes(nbRecBin),
@@ -111,19 +117,23 @@ impl FileT {
             };
             h
         };
-
-        //initialize the first block 
-        let mut file = FileT{
-            fileptr : file , header 
+        let mut filet = FileT{
+                fileptr : newfile , header 
         };
-        let mut firstBlock = Block {
-                degree : 0 ,
-                values : [0i32 ; B],
-                childs : [0i32 ; B+1]
-            };
-        file.write_block(&firstBlock , 0); 
+          
+        //initialize the first block 
+        if mode == 'N' || mode == 'n' {
+         let mut firstBlock = Block {
+                    degree : 0 ,
+                    values : [0i32 ; B],
+                    childs : [0i32 ; B+1]
+                };
+            filet.write_block(&firstBlock , 0); 
+        }
+            
 
-        Ok(file)
+
+        Ok(filet)
 
     }
    
@@ -163,6 +173,11 @@ impl FileT {
         self.write_block(&firstBlock , (self.header.lastBlock + 1) as usize  );
         self.header.lastBlock += 1 ; 
 
+        self.fileptr.seek(SeekFrom::Start(0));
+        self.fileptr.write_all(& self.header.root.to_le_bytes()).unwrap(); 
+        self.fileptr.write_all(& self.header.nbRec.to_le_bytes()).unwrap(); 
+        self.fileptr.write_all(& self.header.lastBlock.to_le_bytes()).unwrap(); 
+            
     }
    pub fn insert(&mut self , key : i32 , root : i32 ) -> Result<i32 , io::Error> {
 
@@ -221,6 +236,7 @@ impl FileT {
    pub fn read(&mut self , root : i32 ){
     
         let mut root = self.read_block(root as usize ).unwrap(); 
+       
         if root.degree != 0 {
             if root.childs[0] != 0 {
                 self.read(root.childs[0]);

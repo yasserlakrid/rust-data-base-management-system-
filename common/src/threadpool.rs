@@ -17,12 +17,16 @@ impl ThreadPool {
             let receiver = Arc::clone(&receiver); 
            let operations_counter = Arc::clone(&operations_counter);
             let thread = thread::spawn(move || loop{
-                 let job = receiver.lock().unwrap().recv(); 
-                operations_counter.fetch_add(1,Ordering::SeqCst) ;
-                match job {
-                    Ok(job) => {job(); println!("the thread {} is running a job number {}", id , operations_counter.load(Ordering::SeqCst)); } ,
-                    Err(err) => {println!("the server didn't receive a job to execute instead {} " , err);break; } 
+                loop {
+                let job = receiver.lock().unwrap().recv(); 
+                    operations_counter.fetch_add(1,Ordering::SeqCst) ;
+                    let res = match job {
+                        Ok(job) => {job(); println!("the thread {} is running a job number {}", id , operations_counter.load(Ordering::SeqCst)); } ,
+                        Err(err) => {println!("the server didn't receive a job to execute instead {} " , err);break; } 
+                    };
+                   
                 }
+                
             });
             threads.push(thread);
         }
