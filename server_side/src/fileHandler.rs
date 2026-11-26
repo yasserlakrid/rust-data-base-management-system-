@@ -12,7 +12,6 @@ pub struct Header {
 pub struct  FileT{
     pub fileptr : File , 
     pub header : Header 
-
 }
 pub struct Block{
     pub degree : i32 , 
@@ -139,7 +138,7 @@ impl FileT {
    
 }
 #[derive(Debug, PartialEq)]
-enum InsertError {
+pub enum InsertError {
     Full,       // no free slot left (in a B-tree: time to split)
     Duplicate,  // key already present
 }
@@ -179,15 +178,23 @@ impl FileT {
         self.fileptr.write_all(& self.header.lastBlock.to_le_bytes()).unwrap(); 
             
     }
-   pub fn insert(&mut self , key : i32 , root : i32 ) -> Result<i32 , io::Error> {
+   pub fn insert(&mut self , key : i32 , root : i32 ) -> Result<i32 , InsertError > {
 
         let mut  rootBlock = self.read_block( root as usize ).unwrap(); 
-      
+        let mut i = 0 ; 
         if rootBlock.degree < B as i32 {
-           insert_in_array(&mut rootBlock.values , rootBlock.degree as usize , key).unwrap(); 
+            match  insert_in_array(&mut rootBlock.values , rootBlock.degree as usize , key) {
+                Ok(some) => { 
+                    rootBlock.degree += 1 ; 
+                    self.write_block(&rootBlock , root as usize  );  
+                    return  Ok(1) 
+                },
+
+                Err(err) => {return Err(InsertError::Duplicate ); }
+            }
            
-            rootBlock.degree += 1 ; 
-            self.write_block(&rootBlock , root as usize  ); 
+           
+           
           
 
         } else {
@@ -197,10 +204,8 @@ impl FileT {
                     rootBlock.childs[0] = self.header.lastBlock ;
                     self.write_block(&rootBlock , root as usize );
                    
-                    self.insert(key , rootBlock.childs[0] )
-                }else{
-                    self.insert(key , rootBlock.childs[0] )
-                };
+                }
+                    return self.insert(key , rootBlock.childs[0] ); 
                 
 
             }else if  key > rootBlock.values[B-1]  {
@@ -208,54 +213,54 @@ impl FileT {
                     self.append_new_block(); 
                     rootBlock.childs[B] = self.header.lastBlock ;
                     self.write_block(&rootBlock , root as usize );
-                    self.insert(key , rootBlock.childs[B] )
-                }else{
-                    self.insert(key , rootBlock.childs[B] )
-                };
+                }
+                    return self.insert(key , rootBlock.childs[B] );
 
             }else {
+                let mut ij = Ok(1) ; 
                 for i in 0..rootBlock.values.len() - 1 {
                     if rootBlock.values[i] < key && rootBlock.values[i + 1 ] > key  {
                          if rootBlock.childs[i] == 0 {
                             self.append_new_block(); 
                             rootBlock.childs[i] = self.header.lastBlock ;
                             self.write_block(&rootBlock , root as usize );
+                        }; 
+                            ij = self.insert(key , rootBlock.childs[i] ) ; 
                         
-                            self.insert(key , rootBlock.childs[i] )
-                        }else{
-                            self.insert(key , rootBlock.childs[i] )
-                        };
                     }
                 }
+                return ij ; 
             }
             
         }
         
-        Ok(1)
+       
    }
-   pub fn read(&mut self , root : i32 ){
-    
+   pub fn read(&mut self , root : i32 ) -> String {
+        let mut message = String::new() ; 
         let mut root = self.read_block(root as usize ).unwrap(); 
        
         if root.degree != 0 {
             if root.childs[0] != 0 {
-                self.read(root.childs[0]);
+                message.push_str(&self.read(root.childs[0]));
             }
             
         println!("{:?}" , &root.values[..(root.degree )as usize ]); 
+        message.push_str(&format!("{:?}\n" ,&root.values[..(root.degree )as usize])); 
+
          for i in 1..(root.degree - 1 ) {
             if root.childs[i as usize ] != 0 {
-                  self.read(root.childs[i as usize ]) ;
+                 message.push_str(&self.read(root.childs[i as usize ]) );
             }
         }
         if root.childs[(root.degree - 1 ) as usize ] != 0 {
-            self.read(root.childs[(root.degree - 1 )as usize ]); 
+            message.push_str(&self.read(root.childs[(root.degree - 1 )as usize ])); 
         }
 
-
-
+        
         }
         
+message 
 
     
    }

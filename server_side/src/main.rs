@@ -6,9 +6,9 @@ use common::threadpool::ThreadPool ;
 use std::sync::{Arc , Mutex , atomic::{AtomicUsize , Ordering} };
 mod requestDecoder ; 
 mod  fileHandler ; 
-use requestDecoder::{split_startup , split_request , RequestT , DecodeError}; 
+use requestDecoder::{split_startup , split_request , RequestT , DecodeError }; 
 
-use fileHandler::{FileT };
+use fileHandler::{FileT  , InsertError};
 
 fn istablish_new_file(buf: &[u8] ){
     ACTIVE_CONNECTIONS.fetch_add(1 , Ordering::Relaxed ); 
@@ -33,7 +33,7 @@ fn istablish_new_file(buf: &[u8] ){
         new_file.read(new_file.header.root);
 }
 
-fn performRequest(buf : &[u8])-> Result<i32 , DecodeError>{
+fn performRequest(buf : &[u8] ,mut  stream : & TcpStream  )-> Result<i32 , DecodeError>{
     println!("oppening an existing file");
     let mut new_file = FileT::open( "data.bin", 'O').unwrap(); 
 
@@ -47,13 +47,24 @@ fn performRequest(buf : &[u8])-> Result<i32 , DecodeError>{
     match request.typeR {
         RequestT::Insert => {
             println!("inserting the { } value into the file " ,request.body ); 
-            new_file.insert(request.body , new_file.header.root).unwrap();
+            match new_file.insert(request.body , new_file.header.root) {
+                        
+                Ok(some) => { stream.write_all("200 OK".as_bytes()) ;} ,
+                Err(err) => {match err {
+                    InsertError::Full => {
+                        stream.write_all("104 Full".as_bytes()) ;
+                    } ,
+                    InsertError::Duplicate => {
+                        stream.write_all("104 Duplicated".as_bytes()) ;
+                    }
+                } }
+            }
+          
         }, 
         RequestT::Read => {
             println!("reading the file" ); 
            
-            
-            new_file.read(new_file.header.root); 
+            stream.write_all( new_file.read(new_file.header.root).as_bytes()) ;
         },
         _=>{
             println!("request not availbe for now"); 
@@ -75,8 +86,7 @@ fn handleRequest(mut stream : TcpStream  ){
             istablish_new_file(&buf[..n]); 
             stream.write_all("new file created".as_bytes()); 
         }else{
-            performRequest(&buf[..n]); 
-            stream.write_all("new operation perfomed".as_bytes());
+            performRequest(&buf[..n] , &stream); 
         };
     }
 
